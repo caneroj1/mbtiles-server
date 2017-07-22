@@ -36,8 +36,10 @@ tileAPI = getTileFromDB
         getTileBS :: Z -> X -> Y -> MbtilesT (ExceptT ServantErr IO) (Maybe BL.ByteString)
         getTileBS = getTile
 
+mbtilesFileHere = undefined -- "/path/to/mbtiles/file.mbtiles"
+
 api :: Server TileServer
-api = enter (transformToHandler "/Users/jcanero/Desktop/other.mbtiles") tileAPI
+api = enter (transformToHandler mbtilesFileHere) tileAPI
 
 service :: Server TileServer
 service = api
