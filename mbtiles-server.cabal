@@ -19,7 +19,6 @@ executable mbtiles-server-exe
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
   build-depends:       base
                      , bytestring
-                     , mbtiles-server
                      , mbtiles
                      , mtl
                      , servant-server
