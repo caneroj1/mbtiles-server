@@ -10,6 +10,7 @@ import           Database.Mbtiles
 import           Network.Wai.Handler.Warp
 import           Network.Wai.Middleware.RequestLogger
 import           Servant
+import           System.Exit
 
 type TileServer =
   "tiles" :>
@@ -18,13 +19,13 @@ type TileServer =
         Capture "y" Int :>
           Get '[OctetStream] BL.ByteString
 
-mbtilesToHandler :: FilePath -> MbtilesT (ExceptT ServantErr IO) a -> Handler a
-mbtilesToHandler fp mbt = do
-  e <- runMbtilesT fp mbt
-  either (const (fail "MBTiles Error")) return e
+mbtilesToHandler :: MbtilesPool -> MbtilesT (ExceptT ServantErr IO) a -> Handler a
+mbtilesToHandler pool mbt = do
+  e <- runMbtilesPoolT pool mbt
+  return e
 
-transformToHandler :: FilePath -> MbtilesT (ExceptT ServantErr IO) :~> Handler
-transformToHandler fp = Nat (mbtilesToHandler fp)
+transformToHandler :: MbtilesPool -> MbtilesT (ExceptT ServantErr IO) :~> Handler
+transformToHandler p = Nat (mbtilesToHandler p)
 
 tileAPI :: ServerT TileServer (MbtilesT (ExceptT ServantErr IO))
 tileAPI = getTileFromDB
@@ -36,12 +37,12 @@ tileAPI = getTileFromDB
         getTileBS :: Z -> X -> Y -> MbtilesT (ExceptT ServantErr IO) (Maybe BL.ByteString)
         getTileBS = getTile
 
-mbtilesFileHere = undefined -- "/path/to/mbtiles/file.mbtiles"
+mbtilesFileHere = "/path/to/mbtiles/file.mbtiles"
 
-api :: Server TileServer
-api = enter (transformToHandler mbtilesFileHere) tileAPI
+api :: MbtilesPool -> Server TileServer
+api pool = enter (transformToHandler pool) tileAPI
 
-service :: Server TileServer
+service :: MbtilesPool -> Server TileServer
 service = api
 
 apiProxy :: Proxy TileServer
@@ -50,10 +51,12 @@ apiProxy = Proxy
 middleware :: Application -> Application
 middleware = logStdoutDev
 
-app :: Application
-app = serve apiProxy service
+app :: MbtilesPool -> Application
+app = serve apiProxy . service
 
-startAPI :: IO ()
-startAPI = (run 3000 . middleware) app
+startAPI :: MbtilesPool -> IO ()
+startAPI = (run 3000 . middleware) . app
 
-main = startAPI
+main = do
+  me <- getMbtilesPool mbtilesFileHere
+  either (\e -> print e >> exitFailure) startAPI me
