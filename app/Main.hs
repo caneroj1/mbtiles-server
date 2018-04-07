@@ -8,8 +8,10 @@ import qualified Data.ByteString.Lazy                 as BL
 import           Data.Maybe
 import           Database.Mbtiles
 import           Network.Wai.Handler.Warp
+import           Network.Wai.Middleware.Cors
 import           Network.Wai.Middleware.RequestLogger
 import           Servant
+import           System.Environment
 import           System.Exit
 
 type TileServer =
@@ -17,7 +19,7 @@ type TileServer =
     Capture "zoom" Int :>
       Capture "x" Int :>
         Capture "y" Int :>
-          Get '[OctetStream] BL.ByteString
+          Get '[OctetStream] (Headers '[Header "Content-Encoding" String] BL.ByteString)
 
 mbtilesToHandler :: MbtilesPool -> MbtilesT (ExceptT ServantErr IO) a -> Handler a
 mbtilesToHandler pool mbt = do
@@ -33,11 +35,9 @@ tileAPI = getTileFromDB
           mbt <- getTileBS (Z z) (X x) (Y y)
           case mbt of
             Nothing -> lift $ throwError err404
-            Just b  -> return b
+            Just b  -> return $ addHeader "gzip" b
         getTileBS :: Z -> X -> Y -> MbtilesT (ExceptT ServantErr IO) (Maybe BL.ByteString)
         getTileBS = getTile
-
-mbtilesFileHere = "/path/to/mbtiles/file.mbtiles"
 
 api :: MbtilesPool -> Server TileServer
 api pool = enter (transformToHandler pool) tileAPI
@@ -49,14 +49,16 @@ apiProxy :: Proxy TileServer
 apiProxy = Proxy
 
 middleware :: Application -> Application
-middleware = logStdoutDev
+middleware = logStdoutDev . simpleCors
 
 app :: MbtilesPool -> Application
 app = serve apiProxy . service
 
-startAPI :: MbtilesPool -> IO ()
-startAPI = (run 3000 . middleware) . app
+startAPI :: Int -> MbtilesPool -> IO ()
+startAPI p = (run p . middleware) . app
 
 main = do
-  me <- getMbtilesPool mbtilesFileHere
-  either (\e -> print e >> exitFailure) startAPI me
+  tilesFile <- fromMaybe "" . listToMaybe <$> getArgs
+  tilesPort <- maybe 9000 read . listToMaybe . drop 1 <$> getArgs
+  me <- getMbtilesPool tilesFile
+  either (\e -> print e >> exitFailure) (startAPI tilesPort) me
